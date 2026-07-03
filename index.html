@@ -1231,8 +1231,8 @@ function renderPopup(iwEl,idx,d,iw){
       <div class="hy-label">사용가부 <span class="hy-req">필수</span></div>
       <div class="hy-toggle-row">
         <button class="hy-tbtn hy-good${draft.resultTop==='양호'?' on':''}" onclick="hySetResultTop(${idx},'양호')">양호</button>
-        <button class="hy-tbtn hy-warn${draft.resultTop==='불량사용가'?' on':''}" onclick="hySetResultTop(${idx},'불량사용가')">고장·사용가능</button>
-        <button class="hy-tbtn hy-bad${draft.resultTop==='불량사용불가'?' on':''}" onclick="hySetResultTop(${idx},'불량사용불가')">고장·사용불가</button>
+        <button class="hy-tbtn hy-warn${draft.resultTop==='불량사용가'?' on':''}" onclick="hySetResultTop(${idx},'불량사용가')">고장·사용가</button>
+        <button class="hy-tbtn hy-bad${draft.resultTop==='불량사용불가'?' on':''}" onclick="hySetResultTop(${idx},'불량사용불가')">고장·사용불</button>
       </div>
       ${draft.resultTop==='양호'?`
       <div class="hy-toggle-row hy-grade-row" style="margin-top:6px">
