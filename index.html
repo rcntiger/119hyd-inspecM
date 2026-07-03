@@ -122,10 +122,10 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
   .map-toolbar{display:none!important}
   .map-toolbar-top{display:none!important}
   .map-header{flex-direction:column;align-items:stretch;overflow-x:visible;overflow-y:visible;gap:5px;padding:6px 8px;min-height:0}
-  .map-header-row1,.map-header-row2{display:flex;align-items:center;gap:5px;width:100%}
-  .map-header-row1>div{margin-left:auto}
-  .map-header-row2{justify-content:space-between}
-  .map-header-row2 .btn{flex:1;padding:6px 4px!important;font-size:10px!important;text-align:center;white-space:nowrap}
+  .map-header-row1,.map-header-row2{display:flex;align-items:center;justify-content:center;gap:5px;width:100%}
+  .map-header-row1>div{margin-left:0}
+  .map-header-row2{gap:8px}
+  .map-header-row2 .btn{flex:0 1 auto;padding:6px 10px!important;font-size:10px!important;text-align:center;white-space:nowrap}
   #inspNameGlobal{width:96px!important}
   #inspDateGlobal{width:108px!important}
   .map-header .btn{padding:4px 7px!important;font-size:10px!important;white-space:nowrap;flex-shrink:0}
@@ -247,6 +247,8 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
 .hy-label{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em;margin-bottom:5px}
 .hy-req{color:#ef4444;font-size:9px;text-transform:none}
 .hy-toggle-row{display:flex;gap:5px;flex-wrap:wrap}
+.hy-grade-row{flex-wrap:nowrap}
+.hy-grade-row .hy-tbtn{flex:1 1 0;min-width:0;padding:8px 2px;font-size:13px}
 .hy-tbtn{flex:1;min-width:64px;padding:7px 6px;border:1.5px solid #e2e8f0;border-radius:7px;background:#f8fafc;color:#475569;font-size:11px;font-weight:700;cursor:pointer;transition:all .12s;font-family:inherit}
 .hy-tbtn:hover{border-color:#94a3b8}
 .hy-tbtn.on{background:#2563eb;border-color:#2563eb;color:#fff}
@@ -1233,7 +1235,7 @@ function renderPopup(iwEl,idx,d,iw){
         <button class="hy-tbtn hy-bad${draft.resultTop==='불량사용불가'?' on':''}" onclick="hySetResultTop(${idx},'불량사용불가')">고장·사용불가</button>
       </div>
       ${draft.resultTop==='양호'?`
-      <div class="hy-toggle-row" style="margin-top:6px">
+      <div class="hy-toggle-row hy-grade-row" style="margin-top:6px">
         <button class="hy-tbtn${draft.result==='A'?' on':''}" onclick="hySetGrade(${idx},'A')">A</button>
         <button class="hy-tbtn${draft.result==='B'?' on':''}" onclick="hySetGrade(${idx},'B')">B</button>
         <button class="hy-tbtn${draft.result==='C'?' on':''}" onclick="hySetGrade(${idx},'C')">C</button>
