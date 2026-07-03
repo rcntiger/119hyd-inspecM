@@ -185,7 +185,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
 /* 팝업 */
 
 /* ═══ InfoWindow ═══ */
-.iw-wrap{background:#fff;border-radius:10px;padding:12px 14px;min-width:260px;max-width:320px;box-shadow:0 4px 20px rgba(0,0,0,.25);font-family:sans-serif;max-height:60vh;overflow-y:auto}
+.iw-wrap{background:#fff;border-radius:10px;padding:12px 14px;min-width:260px;max-width:320px;box-shadow:0 4px 20px rgba(0,0,0,.25);font-family:sans-serif;max-height:60vh;overflow-y:auto;position:relative;z-index:10001}
 .iw-photo-add-top{display:block}
 .iw-photo-add-bottom{display:none!important}
 @media(max-width:600px){
@@ -1094,6 +1094,11 @@ function addMarker(idx,d){
   renderPopup(iwEl,idx,d,iw);
 
   function openIw(){
+    // 이미 이 마커의 카드가 열려있는 상태에서 다시 클릭하면 닫는다 (토글)
+    if(iwOpen===iw){
+      closeIw();
+      return;
+    }
     if(iwOpen)iwOpen.setMap(null);
     if(activeMarkerEl)activeMarkerEl.classList.remove('active-mk');
     el.classList.add('active-mk');activeMarkerEl=el;
@@ -1633,9 +1638,24 @@ function setActive(idx){
 function closeIw(){if(iwOpen){iwOpen.setMap(null);iwOpen=null;}if(activeMarkerEl){activeMarkerEl.classList.remove('active-mk');activeMarkerEl=null;}}
 function fitAll(){
   if(!kakaoMap)return;
+  // 그룹/검색 필터로 숨겨진 항목은 제외하고, 현재 화면에 보이는 대상만 기준으로 범위를 잡는다
+  const visible=items.filter(d=>d.lat&&d.lng&&!isHidden(d));
+  const pts=visible.length?visible:items.filter(d=>d.lat&&d.lng); // 필터 결과가 하나도 없으면 전체로 폴백
+  if(!pts.length)return;
+  // 좌표 이상치(잘못된 지오코딩으로 엉뚱하게 먼 지역에 찍힌 점) 때문에
+  // 지도가 전국 단위로 확 축소되는 문제를 막기 위해, 중앙값에서 너무 먼 점은 제외하고 범위를 계산
+  const lats=pts.map(d=>d.lat).slice().sort((a,b)=>a-b);
+  const lngs=pts.map(d=>d.lng).slice().sort((a,b)=>a-b);
+  const medLat=lats[Math.floor(lats.length/2)];
+  const medLng=lngs[Math.floor(lngs.length/2)];
+  const MAX_DEG=0.3; // 약 30km 이내까지는 정상 범위로 간주
+  const normal=pts.filter(d=>Math.abs(d.lat-medLat)<MAX_DEG&&Math.abs(d.lng-medLng)<MAX_DEG);
+  const useSet=normal.length?normal:pts; // 전부 이상치로 걸러지면 원래대로 전체 사용
   const bounds=new kakao.maps.LatLngBounds();
-  items.forEach(d=>{if(d.lat&&d.lng)bounds.extend(new kakao.maps.LatLng(d.lat,d.lng));});
+  useSet.forEach(d=>bounds.extend(new kakao.maps.LatLng(d.lat,d.lng)));
   if(!bounds.isEmpty())kakaoMap.setBounds(bounds,50);
+  // 안전장치: 그래도 너무 축소되면(전국지도 수준) 레벨을 다시 당겨온다
+  if(kakaoMap.getLevel()>9)kakaoMap.setLevel(9);
 }
 
 /* ══════════ Excel 업로드 / 컬럼 재설정 (공통 ExcelUtil.createReader 사용) ══════════ */
