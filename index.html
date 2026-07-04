@@ -176,7 +176,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
 /* 마커 */
 
 /* ═══ Marker ═══ */
-.kk-marker{width:12px;height:12px;border-radius:50%;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.6);cursor:pointer;transition:all .2s;background:#ef4444}
+.kk-marker{width:16px;height:16px;border-radius:50%;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.6);cursor:pointer;transition:all .2s;background:#ef4444}
 .kk-marker:hover{transform:scale(1.5)}
 /* 마커 툴팁 */
 .mk-tooltip{position:fixed;background:rgba(15,23,42,.92);color:#f1f5f9;font-size:11px;font-weight:600;padding:4px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);z-index:9999;opacity:0;transition:opacity .15s;transform:translateX(-50%)}
@@ -212,6 +212,13 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
 .iw-addr-row{display:flex;align-items:center;gap:6px;margin-bottom:3px}
 .iw-addr{font-size:12px;color:#64748b;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
 .iw-rv-inline{flex-shrink:0;padding:2px 7px;border:1px solid #e2e8f0;border-radius:5px;background:#f8fafc;color:#475569;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s}
+.hy-fixloc-btn{flex:1;padding:6px 4px;border:1px dashed #93c5fd;border-radius:7px;background:#eff6ff;color:#2563eb;font-size:10.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+.hy-fixloc-full{width:100%;display:block;margin-bottom:8px;font-size:11px;white-space:normal}
+.hy-fixloc-btn.on{background:#2563eb;color:#fff;border-style:solid;animation:hy-pulse 1s infinite}
+@keyframes hy-pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.hy-locbtn-row{display:flex;gap:6px;margin-bottom:8px}
+.iw-latlng-row{font-size:10px;color:#94a3b8;margin-bottom:6px}
+.iw-locfixed-badge{display:inline-block;background:#dbeafe;color:#2563eb;font-weight:700;padding:1px 6px;border-radius:8px;font-size:9.5px;margin-left:2px}
 .iw-rv-inline:hover{background:#22c55e;color:#fff;border-color:#22c55e}
 .iw-extra{font-size:10px;color:#3b82f6;margin-bottom:10px;font-weight:600}
 .iw-divider{height:1px;background:#f1f5f9;margin:4px 0}
@@ -389,6 +396,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
         <button class="tool-btn" id="btnSat" onclick="toggleSat()">🛰️<span class="btn-txt"> 위성</span></button>
         <button class="tool-btn" id="btnDist" onclick="toggleDist()">📏<span class="btn-txt"> 거리</span></button>
         <button class="tool-btn" id="btnRv" onclick="toggleRvMode()">🔭<span class="btn-txt"> 로드뷰</span></button>
+        <button class="tool-btn on" id="btnLabelToggle" onclick="toggleLabelVisibility()">🏷️<span class="btn-txt" id="btnLabelToggleTxt"> 이름 ON</span></button>
         <button class="tool-btn" id="btnDistClear" onclick="clearDist()" style="display:none;font-size:11px;color:var(--hi)">✕<span class="btn-txt"> 초기화</span></button>
       </div>
       <div class="map-toolbar" id="mapToolbar">
@@ -580,6 +588,9 @@ let items=[],overlays={};
 let doneMap={},memoMap={},photoMap={},hydrantMap={};
 let hyDraft={}; // 카드에서 저장 전 임시 편집 상태 (idx 기준)
 let groups=[],filterGroupVal='',filterText='';
+let labelsOn=true; // 마커 아래 이름표(풍선) 표시 여부
+let fixLocationIdx=-1; // 위치 수정 모드 중인 항목의 idx (-1이면 비활성)
+let displayIndexOrder=null; // 정렬된 표시 순서(원본 인덱스 배열). null이면 원본 순서 그대로
 
 /* ══════════ Utils & DOM Cache ══════════ */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -796,7 +807,7 @@ async function openProject(proj){
   document.getElementById('homeView').style.display='none';
   document.getElementById('mapView').style.display='flex';
   document.getElementById('mapHeaderTitle').textContent=proj.name;
-  items=[];overlays={};doneMap={};memoMap={};photoMap={};hydrantMap={};hyDraft={};groups=[];filterGroupVal='';filterText='';
+  items=[];overlays={};doneMap={};memoMap={};photoMap={};hydrantMap={};hyDraft={};groups=[];filterGroupVal='';filterText='';displayIndexOrder=null;sortMode='';
   document.getElementById('listEl').innerHTML='<div style="text-align:center;color:var(--mt);font-size:12px;padding:30px">지도 초기화 중...</div>';
   const dateEl=document.getElementById('inspDateGlobal');
   if(dateEl&&!dateEl.value)dateEl.value=new Date().toISOString().slice(0,10); // 안전장치: 비어있으면 오늘 날짜로
@@ -861,7 +872,7 @@ async function loadProjectData(){
     hydrantMap={};(hyArr||[]).forEach(h=>{hydrantMap[h.item_id]=h;});
     hyDraft={};
     // 그룹 목록
-    groups=[...new Set(items.map(d=>d.group_name||'').filter(Boolean))]
+    groups=[...new Set(items.map(d=>String(d.group_name||'').trim()).filter(Boolean))]
       .sort((a,b)=>a.localeCompare(b,'ko',{numeric:true,sensitivity:'base'}));
     buildGroupFilter();
     renderAllMarkers();
@@ -894,12 +905,12 @@ function updateGroupCounts(){
   const opts=sel.querySelectorAll('option');
   opts.forEach(opt=>{
     if(!opt.value){opt.textContent='전체 그룹 (모든 소화전 표시)';return;}
-    const cnt=vis.filter(d=>d.group_name===opt.value).length;
+    const cnt=vis.filter(d=>String(d.group_name||'').trim()===opt.value).length;
     opt.textContent=`${opt.value} (${cnt})`;
   });
 }
 function isHidden(d){
-  if(filterGroupVal&&d.group_name!==filterGroupVal)return true;
+  if(filterGroupVal&&String(d.group_name||'').trim()!==String(filterGroupVal).trim())return true;
   if(filterText&&!d.name.toLowerCase().includes(filterText.toLowerCase())&&!(d.address||'').toLowerCase().includes(filterText.toLowerCase()))return true;
   return false;
 }
@@ -914,8 +925,16 @@ function setSort(mode){
     document.getElementById('sortName')?.classList.toggle('active',mode==='name');
     document.getElementById('sortAddr')?.classList.toggle('active',mode==='addr');
   }
-  if(sortMode==='name') items.sort((a,b)=>a.name.localeCompare(b.name,'ko'));
-  else if(sortMode==='addr') items.sort((a,b)=>(a.address||'').localeCompare(b.address||'','ko'));
+  // ⚠ items 배열 자체를 sort()하면 overlays(인덱스 기반)와 매핑이 깨져서
+  //    "정렬 후 클릭하면 엉뚱한 카드가 열리는" 버그가 생긴다.
+  //    그래서 items는 그대로 두고, 표시 순서(원본 인덱스 배열)만 별도로 정렬한다.
+  if(sortMode==='name'){
+    displayIndexOrder=items.map((d,i)=>i).sort((ia,ib)=>items[ia].name.localeCompare(items[ib].name,'ko'));
+  }else if(sortMode==='addr'){
+    displayIndexOrder=items.map((d,i)=>i).sort((ia,ib)=>(items[ia].address||'').localeCompare(items[ib].address||'','ko'));
+  }else{
+    displayIndexOrder=null;
+  }
   renderList();
   applyFilter();
 }
@@ -929,7 +948,7 @@ function applyFilter(){
     const o=overlays[i];
     if(o){
       o.overlay?.setMap(hide?null:kakaoMap);
-      o.labelOverlay?.setMap(hide?null:kakaoMap);
+      o.labelOverlay?.setMap((hide||!labelsOn)?null:kakaoMap);
       // 클러스터러 계산용 invisible 마커도 같이 빼줘야 카카오 기본 풍선이 남지 않음
       if(clusterer&&o.clMarker&&o.hidden!==hide){
         if(hide)toRemove.push(o.clMarker);
@@ -994,6 +1013,7 @@ function initKakaoMap(){
         }
         kakao.maps.event.addListener(kakaoMap,'click',(e)=>{
           document.getElementById('mapSearchResults').style.display='none';
+          if(fixLocationIdx>=0){applyFixLocation(fixLocationIdx,e.latLng);return;}
           if(rvMode){openRvAt(e.latLng);setRvMode(false);return;}
           if(distMode){distPath.push(e.latLng);addDistMarker(e.latLng);updateDistLine();}
         });
@@ -1099,7 +1119,7 @@ function addMarker(idx,d){
       xAnchor:0.5,yAnchor:-0.2,
       zIndex:9,
     });
-    labelOverlay.setMap(kakaoMap);
+    if(labelsOn)labelOverlay.setMap(kakaoMap);
   }
 
   const iwEl=document.createElement('div');
@@ -1174,6 +1194,8 @@ function renderPopup(iwEl,idx,d,iw){
     </div>
     <div class="iw-name">${esc(d.name)}</div>
     ${d.address?`<div class="iw-addr-row"><span class="iw-addr">📍 ${esc((d.address||'').replace(/^서울특별시\s*/,''))}</span><button class="iw-rv-inline" onclick="openRvFromPopup(new kakao.maps.LatLng(${d.lat},${d.lng}))">🔭 로드뷰</button></div>`:''}
+    <div class="iw-latlng-row">🧭 위도 ${d.lat?d.lat.toFixed(6):'-'}, 경도 ${d.lng?d.lng.toFixed(6):'-'}${d.loc_fixed_at?` <span class="iw-locfixed-badge">📍 위치 수정됨 · ${new Date(d.loc_fixed_at).toLocaleDateString('ko-KR',{month:'2-digit',day:'2-digit'})}</span>`:''}</div>
+    <button class="hy-fixloc-btn hy-fixloc-full${fixLocationIdx===idx?' on':''}" onclick="startFixLocation(${idx})">${fixLocationIdx===idx?'❌ 취소 (지도를 클릭하거나 현위치 버튼을 누르세요)':'📍 위치 수정'}</button>
     ${extraStr?`<div class="iw-extra">${esc(extraStr)}</div>`:''}
     <div class="iw-divider"></div>
 
@@ -1594,7 +1616,9 @@ function renderList(){
   el.innerHTML='';
   if(!items.length){el.innerHTML='<div style="text-align:center;color:var(--mt);font-size:12px;padding:30px">📂 엑셀 업로드로 대상을 추가하세요</div>';return;}
   const frag=document.createDocumentFragment();
-  items.forEach((d,i)=>{
+  const order=displayIndexOrder&&displayIndexOrder.length===items.length?displayIndexOrder:items.map((_,i)=>i);
+  order.forEach(i=>{
+    const d=items[i];
     const isDone=!!doneMap[d.id];
     const color=groupColor(d);
     const noCoord=!(d.lat&&d.lng);
@@ -1643,6 +1667,82 @@ function renderList(){
 }
 
 // 좌표가 없는 개별 항목만 다시 지오코딩 시도
+// ━━ 잘못된 위치 수정 (지도를 클릭해 새 위치 지정) ━━
+// 위치 수정 중에는 수정 대상 마커만 남기고 나머지는 숨겨서 헷갈리지 않게 한다
+function setOtherMarkersHidden(exceptIdx,hidden){
+  Object.entries(overlays).forEach(([i,o])=>{
+    if(Number(i)===exceptIdx)return;
+    if(hidden){
+      o.overlay?.setMap(null);
+      o.labelOverlay?.setMap(null);
+    }else if(!o.hidden){ // 그룹/검색 필터로 원래 숨겨진 마커는 복원하지 않음
+      o.overlay?.setMap(kakaoMap);
+      if(labelsOn)o.labelOverlay?.setMap(kakaoMap);
+    }
+  });
+}
+function startFixLocation(idx){
+  if(fixLocationIdx===idx){
+    // 이미 이 항목을 수정 중이면 취소
+    fixLocationIdx=-1;
+    kakaoMap.setCursor('');
+    setOtherMarkersHidden(idx,false);
+    showToast('위치 수정 취소됨','');
+  }else{
+    fixLocationIdx=idx;
+    kakaoMap.setCursor('crosshair');
+    setOtherMarkersHidden(idx,true);
+    showToast('📍 지도를 클릭하거나 우측 "현위치" 버튼을 누르세요','');
+  }
+  hyReRender(idx);
+}
+// 좌표 → 주소 역지오코딩 (지도를 클릭했을 때 그 지점의 주소를 함께 받아오기 위함)
+async function reverseGeocode(lat,lng){
+  try{
+    const r=await fetch(`https://dapi.kakao.com/v2/local/geo/coord2address.json?x=${lng}&y=${lat}`,{headers:{Authorization:'KakaoAK '+REST_KEY}});
+    if(r.ok){
+      const data=await r.json();
+      const doc=data.documents?.[0];
+      if(doc)return doc.road_address?.address_name||doc.address?.address_name||null;
+    }
+  }catch{}
+  return null;
+}
+async function applyFixLocation(idx,latLng){
+  const d=items[idx];if(!d)return;
+  fixLocationIdx=-1;
+  kakaoMap.setCursor('');
+  const lat=latLng.getLat(),lng=latLng.getLng();
+  try{
+    showToast('주소 확인 중...','');
+    const addr=await reverseGeocode(lat,lng);
+    const payload={lat,lng,loc_fixed_at:new Date().toISOString()};
+    if(addr)payload.address=addr;
+    await SupabaseUtil.update('hydmap_items',payload,{id:d.id});
+    d.lat=lat;d.lng=lng;d.loc_fixed_at=payload.loc_fixed_at;
+    if(addr)d.address=addr;
+    // 기존 오버레이/클러스터 마커 위치 이동 (재생성 없이 좌표만 갱신)
+    const o=overlays[idx];
+    if(o){
+      const newPos=new kakao.maps.LatLng(lat,lng);
+      o.overlay?.setPosition(newPos);
+      o.labelOverlay?.setPosition(newPos);
+      o.iw?.setPosition(newPos);
+      o.clMarker?.setPosition(newPos);
+    }else{
+      // 좌표가 없어서 마커가 아예 없던 항목이면 새로 생성
+      addMarker(idx,d);
+      if(clusterer)clusterer.redraw();
+    }
+    hyReRender(idx);
+    renderList();
+    setOtherMarkersHidden(idx,false);
+    showToast(addr?'✅ 위치·주소가 함께 수정되었습니다':'✅ 위치가 수정되었습니다 (주소 확인 실패)','ok');
+  }catch(e){
+    setOtherMarkersHidden(idx,false);
+    showToast('위치 수정 실패: '+(e?.message||''),'err');
+  }
+}
 async function retryGeocodeItem(idx){
   const d=items[idx];if(!d||!currentProject)return;
   if(!d.address){showToast('주소 정보가 없습니다','err');return;}
@@ -1713,6 +1813,10 @@ function getExcelReader(){
 // ━━ 업로드 ━━
 function showUploadModal(){
   if(!currentProject){showToast('프로젝트를 먼저 선택하세요','err');return;}
+  if(items.length>0){
+    const ok=confirm(`이미 업로드된 소화전 ${items.length}개가 있습니다.\n엑셀을 다시 업로드하면 기존 데이터(점검 기록 포함)는 모두 삭제되고 새 엑셀 내용으로 교체됩니다.\n계속하시겠습니까?`);
+    if(!ok)return;
+  }
   const input=document.createElement('input');
   input.type='file';
   input.accept='.xlsx,.xls,.csv,.ods,.tsv';
@@ -1764,7 +1868,7 @@ async function _onExcelConfirm(rows,mapping){
     // 119hyd-inspec.html과 동일한 판별 규칙: "지상" 포함 또는 '1'/'G' → 지상식, 그 외(값이 있으면) 지하식
     const hydrantType=typeRaw?(/지상|^1$|^G$/i.test(typeRaw)?'ground':'underground'):null;
     const extraObj={};
-    if(mapping.extra!=null)extraObj.정보=String(r[mapping.extra]||'').trim();
+    if(mapping.extra!=null)extraObj[mapping.extra]=String(r[mapping.extra]||'').trim();
     if(hydrantType)extraObj._type=hydrantType;
     return{
       name:String(mapping.name!=null?r[mapping.name]:'').replace(/^\s+|\s+$/g,'').replace(/\s+/g,' '),
@@ -1784,12 +1888,25 @@ async function _onExcelConfirm(rows,mapping){
 }
 
 async function _runUpload(parsed){
+  const pid=currentProject.id;
   // 원본 파일 Storage에 저장
   if(_excelOrigFile&&currentProject){
     try{
-      const path=`${currentProject.id}/original.${_excelOrigFile.name.split('.').pop()||'xlsx'}`;
+      const path=`${pid}/original.${_excelOrigFile.name.split('.').pop()||'xlsx'}`;
       await SupabaseUtil.uploadFile('hydmap-files',path,_excelOrigFile);
     }catch(e){console.warn('원본 파일 저장 실패',e);}
+  }
+
+  // 기존 데이터가 있으면 새 엑셀로 완전히 교체 (중복 생성 방지)
+  if(items.length>0){
+    try{
+      showToast('기존 데이터 삭제 중...','');
+      await SupabaseUtil.remove('hydmap_photos',{inspection_id:pid});
+      await SupabaseUtil.remove('hydmap_memo',{inspection_id:pid});
+      await SupabaseUtil.remove('hydmap_done',{inspection_id:pid});
+      await SupabaseUtil.remove('hydmap_records',{inspection_id:pid});
+      await SupabaseUtil.remove('hydmap_items',{inspection_id:pid});
+    }catch(e){showToast('기존 데이터 삭제 실패: '+e.message,'err');return;}
   }
 
   let ok=0;
@@ -1799,7 +1916,7 @@ async function _runUpload(parsed){
     let lat=null,lng=null;
     try{const geo=await geocodeAddr(d.address);if(geo){lat=geo.lat;lng=geo.lng;}}catch{}
     try{
-      await SupabaseUtil.insert('hydmap_items',{inspection_id:currentProject.id,name:d.name,address:d.address,group_name:d.group_name||null,lat,lng,extra:d.extra||null});
+      await SupabaseUtil.insert('hydmap_items',{inspection_id:pid,name:d.name,address:d.address,group_name:d.group_name||null,lat,lng,extra:d.extra||null});
       ok++;
     }catch{}
     if(i%5===0)await sleep(50);
@@ -1908,17 +2025,36 @@ async function geocodeAddr(addr){
 /* ══════════ Excel Export ══════════ */
 async function exportExcel(){
   const stamp=new Date().toISOString().slice(0,10).replace(/-/g,'');
-  const allRows=items.map(d=>({
-    '이름':d.name,'주소':d.address||'','그룹':d.group_name||'',
-    '점검완료':doneMap[d.id]?'○':'',
-    '점검일자':doneMap[d.id]?.done_at?new Date(doneMap[d.id].done_at).toLocaleDateString('ko-KR'):'',
-    '점검결과':memoMap[d.id]||'',
-    '사진수':(photoMap[d.id]?.length)||0,
-  }));
+  const typeLabel={ground:'지상식',underground:'지하식'};
+  const yesMidNo={yes:'양호',mid:'보통',no:'재도색'};
+  const insulLabel={yes:'설치됨',mid:'불필요',no:'재설치'};
+  const protectLabel={yes:'설치',no:'미설치'};
+  const allRows=items.map(d=>{
+    const rec=hydrantMap[d.id];
+    return{
+      '수정여부':rec?'✏️ 수정됨':'',
+      '이름':d.name,'주소':d.address||'','그룹':d.group_name||'',
+      '소화전종류':typeLabel[rec?.hydrant_type]||'',
+      '도색상태':yesMidNo[rec?.paint]||'',
+      '보온상태':insulLabel[rec?.insul]||'',
+      '보호틀':protectLabel[rec?.protect]||'',
+      '노면표시':rec?.roadmark||'',
+      '사용가부':rec?.result||'',
+      '고장내용':rec?.defect_detail||'',
+      '점검자':rec?.insp_name||'',
+      '점검(입력)일':rec?.insp_date||'',
+      '점검완료':doneMap[d.id]?'○':'',
+      '완료체크일자':doneMap[d.id]?.done_at?new Date(doneMap[d.id].done_at).toLocaleDateString('ko-KR'):'',
+      '메모':memoMap[d.id]||'',
+      '사진수':(photoMap[d.id]?.length)||0,
+    };
+  });
   const doneRows=allRows.filter((_,i)=>!!doneMap[items[i].id]);
   const undoneRows=allRows.filter((_,i)=>!doneMap[items[i].id]);
+  const modifiedRows=allRows.filter((_,i)=>!!hydrantMap[items[i].id]);
   await ExcelUtil.download([
     {name:'전체현황',rows:allRows},
+    {name:'수정됨(점검입력완료)',rows:modifiedRows.length?modifiedRows:[{'안내':'점검 입력된 항목 없음'}]},
     {name:'점검완료',rows:doneRows.length?doneRows:[{'안내':'완료 없음'}]},
     {name:'미완료',rows:undoneRows.length?undoneRows:[{'안내':'미완료 없음'}]},
   ],`${currentProject?.name||'점검결과'}_${stamp}.xlsx`);
@@ -2011,6 +2147,21 @@ function mapZoomOut(){if(kakaoMap)kakaoMap.setLevel(kakaoMap.getLevel()+1,{anima
 let _myLocMarker=null,_myLocCircle=null,_myLocWatch=null;
 
 function toggleMyLocation(){
+  // 위치 수정 모드 중이면, 일반 위치추적 대신 "현재 위치로 바로 수정"으로 동작
+  if(fixLocationIdx>=0){
+    const idx=fixLocationIdx;
+    if(!navigator.geolocation){showToast('이 브라우저는 위치 기능을 지원하지 않습니다','err');return;}
+    showToast('📡 현재 위치 확인 중...','');
+    navigator.geolocation.getCurrentPosition(
+      pos=>{
+        const {latitude:lat,longitude:lng}=pos.coords;
+        applyFixLocation(idx,new kakao.maps.LatLng(lat,lng));
+      },
+      err=>{showToast('현재 위치를 가져오지 못했습니다: '+(err?.message||''),'err');},
+      {enableHighAccuracy:true,timeout:10000}
+    );
+    return;
+  }
   const btn=document.getElementById('btnMyLoc');
   if(_myLocWatch!==null){
     // 추적 종료
@@ -2058,6 +2209,17 @@ function toggleMyLocation(){
     },
     {enableHighAccuracy:true,timeout:10000,maximumAge:3000}
   );
+}
+function toggleLabelVisibility(){
+  labelsOn=!labelsOn;
+  const btn=document.getElementById('btnLabelToggle');
+  const txt=document.getElementById('btnLabelToggleTxt');
+  if(btn)btn.classList.toggle('on',labelsOn);
+  if(txt)txt.textContent=labelsOn?' 이름 ON':' 이름 OFF';
+  Object.values(overlays).forEach(o=>{
+    if(!o.labelOverlay)return;
+    o.labelOverlay.setMap((o.hidden||!labelsOn)?null:kakaoMap);
+  });
 }
 function toggleSat(){satMode=!satMode;const btn=document.getElementById('btnSat');if(satMode){kakaoMap.setMapTypeId(kakao.maps.MapTypeId.HYBRID);btn.classList.add('on-sat');btn.innerHTML='🗺️<span class="btn-txt"> 일반</span>';}else{kakaoMap.setMapTypeId(kakao.maps.MapTypeId.ROADMAP);btn.classList.remove('on-sat');btn.innerHTML='🛰️<span class="btn-txt"> 위성</span>';}}
 
@@ -2177,6 +2339,7 @@ window.addEventListener('keydown',e=>{
     if(document.getElementById('rvPanel').style.display!=='none'){closeRv();return;}
     if(rvMode){setRvMode(false);return;}
     if(distMode){finishDist();return;}
+    if(fixLocationIdx>=0){startFixLocation(fixLocationIdx);return;}
     closeIw();
   }
 });
