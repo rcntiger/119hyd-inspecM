@@ -86,8 +86,9 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
 .stat{flex:1;background:var(--sur2);border-radius:6px;padding:6px 4px;text-align:center}
 .stat .n{font-size:15px;font-weight:700}
 .stat .l{font-size:9px;color:var(--mt);margin-top:1px}
-.prog-wrap{height:5px;background:var(--sur2);border-radius:3px;overflow:hidden;margin-top:8px}
-.prog-fill{height:100%;background:var(--lo);border-radius:3px;transition:width .4s}
+.prog-wrap{height:20px;background:var(--sur2);border-radius:10px;overflow:hidden;margin-top:8px;position:relative}
+.prog-fill{height:100%;background:var(--lo);border-radius:10px;transition:width .4s}
+.prog-pct-text{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);pointer-events:none}
 .prog-label{font-size:15px;font-weight:700;color:var(--tx);margin-top:5px;text-align:center}
 .fbtn{padding:4px 9px;border-radius:20px;border:1px solid var(--bd2);background:var(--sur2);color:var(--mt);font-size:11px;cursor:pointer;user-select:none;transition:all .12s}
 .fbtn.active{color:#fff;border-color:transparent;background:var(--ac)}
@@ -341,8 +342,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
         <select id="groupSelect" onchange="onGroupSelectChange(this.value)" style="width:100%;padding:8px 9px;font-size:12px;font-weight:700"></select>
       </div>
       <div class="panel">
-        <div class="prog-wrap"><div class="prog-fill" id="progFill"></div></div>
-        <div class="prog-label" id="progLabel">0 / 0 (0%)</div>
+        <div class="prog-wrap"><div class="prog-fill" id="progFill"></div><div class="prog-pct-text" id="progPctText">0%</div></div>
         <div class="insp-row" style="display:flex;gap:8px;margin-top:12px">
           <input type="text" id="inspNameGlobal" placeholder="점검자" oninput="saveInspName()"
             style="flex:1;min-width:0;padding:8px 9px;font-size:12.5px;font-weight:700;border-radius:6px;box-sizing:border-box;border:1.5px solid var(--bd2)"/>
@@ -970,7 +970,7 @@ function updateStats(){
   document.getElementById('sLeft')&&(document.getElementById('sLeft').textContent=tot-done);
   document.getElementById('sPct')&&(document.getElementById('sPct').textContent=pct+'%');
   document.getElementById('progFill').style.width=pct+'%';
-  document.getElementById('progLabel').textContent=done+' / '+tot+' ('+pct+'%)';
+  document.getElementById('progPctText').textContent=pct+'%';
 }
 
 /* ══════════ Kakao Map ══════════ */
