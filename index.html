@@ -1270,7 +1270,7 @@ function renderPopup(iwEl,idx,d,iw){
         <span class="iw-memo-title">📝 점검 메모</span>
         <div style="display:flex;align-items:center;gap:5px">
           <span class="iw-memo-status" id="memoSt-${idx}"></span>
-          <button class="iw-rv-inline iw-photo-add-top" onclick="openPhotoSheet(${idx})">📷 추가</button>
+          <button class="iw-rv-inline iw-photo-add-top" onclick="openPhotoSheet(${idx})">📷 사진추가</button>
         </div>
       </div>
       <textarea id="memo-${idx}" placeholder="점검 결과, 특이사항 입력..." oninput="onMemoInput(${idx},this)">${esc(memo)}</textarea>
@@ -1286,7 +1286,7 @@ function renderPopup(iwEl,idx,d,iw){
     <div class="iw-divider"></div>
 
     <div class="iw-photo-add-bottom" style="display:flex;align-items:center;justify-content:flex-start;margin-bottom:5px">
-      <button class="iw-rv-inline" onclick="openPhotoSheet(${idx})">📷 추가</button>
+      <button class="iw-rv-inline" onclick="openPhotoSheet(${idx})">📷 사진추가</button>
     </div>
     <div class="iw-photos" id="photoGrid-${idx}"></div>
 
