@@ -871,6 +871,11 @@ async function loadProjectData(){
     photoMap={};photosArr.forEach(p=>{if(!photoMap[p.item_id])photoMap[p.item_id]=[];photoMap[p.item_id].push(p);});
     hydrantMap={};(hyArr||[]).forEach(h=>{hydrantMap[h.item_id]=h;});
     hyDraft={};
+    // 기본 정렬: 이름순
+    sortMode='name';
+    displayIndexOrder=items.map((d,i)=>i).sort((ia,ib)=>items[ia].name.localeCompare(items[ib].name,'ko'));
+    document.getElementById('sortName')?.classList.add('active');
+    document.getElementById('sortAddr')?.classList.remove('active');
     // 그룹 목록
     groups=[...new Set(items.map(d=>String(d.group_name||'').trim()).filter(Boolean))]
       .sort((a,b)=>a.localeCompare(b,'ko',{numeric:true,sensitivity:'base'}));
