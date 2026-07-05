@@ -586,7 +586,26 @@ let memoTimers={};
 let currentProject=null;
 let projectList=[];
 let items=[],overlays={};
-let doneMap={},memoMap={},photoMap={},hydrantMap={};
+// ══ 통합 상태 저장소 (최적화 4) ══
+// 예전엔 done/memo/photo/hydrant record가 doneMap/memoMap/photoMap/hydrantMap 4개
+// 전역 변수로 파편화되어 있어 동기화 추적이 어려웠다. 이제 실제 데이터는
+// hyState[item_id] = {done, memo, photos, hydrant} 한 곳에 모아두고,
+// doneMap/memoMap/photoMap/hydrantMap은 기존 코드(46곳 이상)를 건드리지 않도록
+// hyState를 들여다보는 Proxy "뷰"로 유지한다. 즉 `doneMap[id]`, `doneMap[id]=x`,
+// `delete doneMap[id]` 등 기존 문법이 전부 그대로 동작하면서, 실제 저장은 단일 객체에 이루어진다.
+let hyState={};
+function _hyEnsure(id){return hyState[id]||(hyState[id]={done:undefined,memo:'',photos:undefined,hydrant:undefined});}
+function _hyMapView(key,emptyVal){
+  return new Proxy({},{
+    get(_,id){const s=hyState[id];return s?s[key]:undefined;},
+    set(_,id,val){_hyEnsure(id)[key]=val;return true;},
+    has(_,id){const s=hyState[id];return !!s&&s[key]!==undefined&&s[key]!==emptyVal;},
+    deleteProperty(_,id){if(hyState[id])hyState[id][key]=emptyVal;return true;},
+    ownKeys(){return Object.keys(hyState).filter(id=>{const s=hyState[id];return s&&s[key]!==undefined&&s[key]!==emptyVal;});},
+    getOwnPropertyDescriptor(){return{enumerable:true,configurable:true};}
+  });
+}
+let doneMap=_hyMapView('done'),memoMap=_hyMapView('memo',''),photoMap=_hyMapView('photos'),hydrantMap=_hyMapView('hydrant');
 let hyDraft={}; // 카드에서 저장 전 임시 편집 상태 (idx 기준)
 let groups=[],filterGroupVal='',filterText='';
 let labelsOn=false; // 마커 아래 이름표(풍선) 표시 여부 (기본 OFF)
@@ -623,7 +642,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.body.appendChild(_sharedTooltip);
   document.getElementById('mapView').style.display='none';
   loadProjects();
-  loadSheetJS();
   // 점검자/점검일자 복원
   const nameEl=document.getElementById('inspNameGlobal');
   const dateEl=document.getElementById('inspDateGlobal');
@@ -836,7 +854,7 @@ async function openProject(proj){
   document.getElementById('homeView').style.display='none';
   document.getElementById('mapView').style.display='flex';
   document.getElementById('mapHeaderTitle').textContent=proj.name;
-  items=[];overlays={};doneMap={};memoMap={};photoMap={};hydrantMap={};hyDraft={};hyExpanded={};groups=[];filterGroupVal='';filterText='';displayIndexOrder=null;sortMode='';
+  items=[];overlays={};hyState={};hyDraft={};hyExpanded={};groups=[];filterGroupVal='';filterText='';displayIndexOrder=null;sortMode='';
   document.getElementById('listEl').innerHTML='<div style="text-align:center;color:var(--mt);font-size:12px;padding:30px">지도 초기화 중...</div>';
   const dateEl=document.getElementById('inspDateGlobal');
   if(dateEl&&!dateEl.value)dateEl.value=new Date().toISOString().slice(0,10); // 안전장치: 비어있으면 오늘 날짜로
@@ -880,25 +898,62 @@ async function goHome(){
     await loadProjects();
   }catch(e){console.error('goHome 오류:',e);}
 }
+// ══ 최적화 5 ══
+// 예전엔 hydmap_items/done/memo/photos/records를 inspection_id로 각각 따로 조회해
+// 왕복 5번이 걸렸다. hydmap_done/memo/photos/records는 모두 item_id로 hydmap_items를
+// 참조하는 FK 관계이므로, PostgREST 임베딩(select('*, hydmap_done(*), ...'))을 쓰면
+// 쿼리 1번으로 합칠 수 있다. 혹시 FK 관계가 아직 안 걸려있거나 임베딩이 실패하면
+// (예: 관계명이 다르거나 RLS로 막힌 경우) 기존 5-쿼리 방식으로 자동 폴백한다.
+async function fetchProjectDataJoined(id){
+  const itemsRes=await SupabaseUtil.select('hydmap_items',{
+    eq:{inspection_id:id},
+    order:{column:'created_at',ascending:true},
+    columns:'*,hydmap_done(*),hydmap_memo(*),hydmap_photos(*),hydmap_records(*)'
+  });
+  // 임베딩된 결과에서 각 하위 데이터를 분리해 기존 코드와 동일한 배열 형태로 재구성
+  const doneArr=[],memoArr=[],photosArr=[],hyArr=[];
+  itemsRes.forEach(it=>{
+    (it.hydmap_done||[]).forEach(x=>doneArr.push(x));
+    (it.hydmap_memo||[]).forEach(x=>memoArr.push(x));
+    (it.hydmap_photos||[]).forEach(x=>photosArr.push(x));
+    (it.hydmap_records||[]).forEach(x=>hyArr.push(x));
+    delete it.hydmap_done;delete it.hydmap_memo;delete it.hydmap_photos;delete it.hydmap_records;
+  });
+  // hydmap_photos는 created_at 오름차순이 필요 (원래 별도 쿼리에 order가 걸려있었음)
+  photosArr.sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
+  return{itemsRes,doneArr,memoArr,photosArr,hyArr};
+}
+async function fetchProjectDataSeparate(id){
+  const [itemsRes,doneArr,memoArr,photosArr,hyArr]=await Promise.all([
+    SupabaseUtil.select('hydmap_items',{eq:{inspection_id:id},order:{column:'created_at',ascending:true}}),
+    SupabaseUtil.select('hydmap_done',{eq:{inspection_id:id}}),
+    SupabaseUtil.select('hydmap_memo',{eq:{inspection_id:id}}),
+    SupabaseUtil.select('hydmap_photos',{eq:{inspection_id:id},order:{column:'created_at',ascending:true}}),
+    SupabaseUtil.select('hydmap_records',{eq:{inspection_id:id}}),
+  ]);
+  return{itemsRes,doneArr,memoArr,photosArr,hyArr};
+}
 async function loadProjectData(){
   if(!currentProject)return;
   const id=currentProject.id;
   try{
-    const [itemsRes,doneArr,memoArr,photosArr,hyArr]=await Promise.all([
-      SupabaseUtil.select('hydmap_items',{eq:{inspection_id:id},order:{column:'created_at',ascending:true}}),
-      SupabaseUtil.select('hydmap_done',{eq:{inspection_id:id}}),
-      SupabaseUtil.select('hydmap_memo',{eq:{inspection_id:id}}),
-      SupabaseUtil.select('hydmap_photos',{eq:{inspection_id:id},order:{column:'created_at',ascending:true}}),
-      SupabaseUtil.select('hydmap_records',{eq:{inspection_id:id}}),
-    ]);
+    let itemsRes,doneArr,memoArr,photosArr,hyArr;
+    try{
+      ({itemsRes,doneArr,memoArr,photosArr,hyArr}=await fetchProjectDataJoined(id));
+    }catch(joinErr){
+      // FK 임베딩 실패(관계 미설정 등) 시 기존 방식으로 폴백
+      console.warn('조인 쿼리 실패, 개별 쿼리로 폴백:',joinErr);
+      ({itemsRes,doneArr,memoArr,photosArr,hyArr}=await fetchProjectDataSeparate(id));
+    }
     items=itemsRes;
     // 그룹 색상 맵 초기화 (순서 보장을 위해 items 순서대로 등록)
     Object.keys(_groupColorMap).forEach(k=>delete _groupColorMap[k]);
     items.forEach(d=>{if(d.group_name)groupColor(d);});
-    doneMap={};doneArr.forEach(d=>{doneMap[d.item_id]=d;});
-    memoMap={};memoArr.forEach(m=>{memoMap[m.item_id]=m.memo||'';});
-    photoMap={};photosArr.forEach(p=>{if(!photoMap[p.item_id])photoMap[p.item_id]=[];photoMap[p.item_id].push(p);});
-    hydrantMap={};(hyArr||[]).forEach(h=>{hydrantMap[h.item_id]=h;});
+    hyState={}; // 통합 상태 저장소 초기화 (doneMap/memoMap/photoMap/hydrantMap은 이 객체의 뷰이므로 자동으로 함께 비워짐)
+    doneArr.forEach(d=>{doneMap[d.item_id]=d;});
+    memoArr.forEach(m=>{memoMap[m.item_id]=m.memo||'';});
+    photosArr.forEach(p=>{if(!photoMap[p.item_id])photoMap[p.item_id]=[];photoMap[p.item_id].push(p);});
+    (hyArr||[]).forEach(h=>{hydrantMap[h.item_id]=h;});
     hyDraft={};
     // 기본 정렬: 이름순
     sortMode='name';
@@ -1196,7 +1251,9 @@ function addMarker(idx,d){
   },{passive:false});
 
   const iw=new kakao.maps.CustomOverlay({position:new kakao.maps.LatLng(d.lat,d.lng),content:iwEl,yAnchor:1.03,zIndex:100});
-  renderPopup(iwEl,idx,d,iw);
+  // 최적화 2: 팝업 HTML(사진 그리드, 점검 폼 등)은 무겁기 때문에
+  // 마커 생성 시점(전체 로드)에 미리 만들지 않고, 실제로 카드가 열릴 때 딱 한 번만 생성한다.
+  // 수백 개 마커를 로드해도 실제로 클릭해서 연 것만 DOM 비용을 지불하게 됨.
 
   function openIw(){
     // 이미 이 마커의 카드가 열려있는 상태에서 다시 클릭하면 닫는다 (토글)
@@ -1204,6 +1261,7 @@ function addMarker(idx,d){
       closeIw();
       return;
     }
+    ensurePopupRendered(idx);
     if(iwOpen)iwOpen.setMap(null);
     if(activeMarkerEl)activeMarkerEl.classList.remove('active-mk');
     el.classList.add('active-mk');activeMarkerEl=el;
@@ -1225,7 +1283,15 @@ function addMarker(idx,d){
   //    → 완전 투명 1x1 PNG를 마커 이미지로 지정해 원천 차단
   const clMarker=new kakao.maps.Marker({position:new kakao.maps.LatLng(d.lat,d.lng),image:getTransparentMarkerImage()});
   if(clusterer)clusterer.addMarker(clMarker,true);
-  overlays[idx]={overlay,iw,clMarker,labelOverlay,hidden:false};
+  overlays[idx]={overlay,iw,clMarker,labelOverlay,hidden:false,popupRendered:false};
+}
+// 팝업이 아직 한 번도 렌더링되지 않았으면 지금 렌더링하고 표시해둔다 (idempotent)
+function ensurePopupRendered(idx){
+  const ov=overlays[idx];
+  if(!ov||ov.popupRendered)return;
+  const d=items[idx];
+  const el=ov.iw.getContent&&ov.iw.getContent();
+  if(d&&el){renderPopup(el,idx,d,ov.iw);ov.popupRendered=true;}
 }
 
 function renderPopup(iwEl,idx,d,iw){
@@ -1447,7 +1513,7 @@ function hyReRender(idx){
   const d=items[idx],ov=overlays[idx];
   if(!d||!ov||!ov.iw)return;
   const el=ov.iw.getContent&&ov.iw.getContent();
-  if(el)renderPopup(el,idx,d,ov.iw);
+  if(el){renderPopup(el,idx,d,ov.iw);ov.popupRendered=true;}
 }
 function hySetType(idx,val){
   const d=items[idx];if(!d)return;
@@ -1777,6 +1843,7 @@ function buildListItem(i){
         kakaoMap.setLevel(3);
         panToForCard(d.lat,d.lng);
         if(overlays[i]){
+          ensurePopupRendered(i);
           if(iwOpen)iwOpen.setMap(null);
           overlays[i].iw.setMap(kakaoMap);
           iwOpen=overlays[i].iw;
