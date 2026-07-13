@@ -68,6 +68,8 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
 .project-card-edit:hover{background:rgba(47,129,247,.15);color:var(--ac)}
 /* 세분계획(조별 뷰) 카드: 부모 카드 아래에 들여쓰기된 작은 카드로 표시 */
 .project-card.subplan{margin-left:18px;padding:10px 14px;border-left:3px solid var(--ac);background:rgba(47,129,247,.04)}
+.project-card.subplan.team{border-left-color:var(--lo);background:rgba(63,185,80,.05)}
+.project-card.subplan.nested{margin-left:36px}
 .project-card.subplan .project-card-name{font-size:13px}
 .subplan-btn{display:inline-flex;align-items:center;gap:4px;margin-top:8px;padding:4px 10px;border:1px dashed var(--bd2);border-radius:6px;background:transparent;color:var(--mt);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
 .subplan-btn:hover{border-color:var(--ac);color:var(--ac)}
@@ -596,6 +598,7 @@ let projectList=[];
 // 세분계획은 부모 계획의 데이터를 특정 팀/조 필터로 잠가서 보는 "뷰"다. 자체 데이터를 갖지 않는다.
 let subPlanList=[];        // parent_id가 있는 계획들 (홈 화면에서 부모 카드 아래에 표시)
 let lockedFilterGroup='';  // 세분계획으로 진입한 경우 잠긴 그룹 필터 값 (예: '1팀 2조')
+let teamFilterPrefix='';   // 팀 단위 세분계획으로 진입한 경우의 팀 접두어 (예: '1팀') — 팀 내 조들만 표시/전환 가능
 let items=[],overlays={};
 // ══ 통합 상태 저장소 (최적화 4) ══
 // 예전엔 done/memo/photo/hydrant record가 doneMap/memoMap/photoMap/hydrantMap 4개
@@ -699,12 +702,26 @@ async function generateSubPlans(parentId){
     const groups=[...new Set((rows||[]).map(r=>String(r.group_name||'').trim()).filter(Boolean))]
       .sort((a,b)=>a.localeCompare(b,'ko',{numeric:true,sensitivity:'base'}));
     if(!groups.length){showToast('팀/조 정보가 없습니다. 엑셀에 팀/조 컬럼을 매핑해서 업로드해주세요.','err');return;}
+    // 팀 목록 추출: "1팀 2조" 형태에서 첫 토큰("1팀")을 팀으로 본다. 공백 없는 값("2조"만)은 팀 없음.
+    const teams=[...new Set(groups.filter(g=>g.includes(' ')).map(g=>g.split(' ')[0]))]
+      .sort((a,b)=>a.localeCompare(b,'ko',{numeric:true,sensitivity:'base'}));
     const existing=subPlanList.filter(sp=>String(sp.parent_id)===String(parentId));
+    const summary=teams.length?`팀 ${teams.length}개 + 조 ${groups.length}개`:`조 ${groups.length}개`;
     const msg=existing.length
-      ?`기존 세분계획 ${existing.length}개를 지우고 ${groups.length}개 조 기준으로 다시 만듭니다.\n(점검 데이터는 부모 계획에 있으므로 사라지지 않습니다)\n계속하시겠습니까?`
-      :`${groups.length}개 조(${groups.slice(0,4).join(', ')}${groups.length>4?' 외':''}) 기준으로 세분계획을 생성합니다.\n계속하시겠습니까?`;
+      ?`기존 세분계획 ${existing.length}개를 지우고 현재 데이터 기준(${summary})으로 다시 만듭니다.\n(점검 데이터는 부모 계획에 있으므로 사라지지 않습니다)\n계속하시겠습니까?`
+      :`${summary}(${groups.slice(0,4).join(', ')}${groups.length>4?' 외':''}) 기준으로 세분계획을 생성합니다.\n계속하시겠습니까?`;
     if(!confirm(msg))return;
     if(existing.length)await SupabaseUtil.remove('hydmap_projects',{parent_id:parentId});
+    // 팀 카드 먼저 (filter_group='1팀' — 열면 접두어 매칭으로 팀 전체 표시)
+    for(const t of teams){
+      await SupabaseUtil.insert('hydmap_projects',{
+        name:`${t} 전체`,
+        description:`${parent.name} — ${t} 소속 전 조`,
+        parent_id:parentId,
+        filter_group:t,
+      });
+    }
+    // 조 카드 (filter_group='1팀 2조' — 정확 매칭으로 해당 조만 표시)
     for(const g of groups){
       await SupabaseUtil.insert('hydmap_projects',{
         name:g,
@@ -713,7 +730,7 @@ async function generateSubPlans(parentId){
         filter_group:g,
       });
     }
-    showToast(`세분계획 ${groups.length}개 생성 완료`,'ok');
+    showToast(`세분계획 ${teams.length+groups.length}개 생성 완료`,'ok');
     await loadProjects();
   }catch(e){
     showToast('세분계획 생성 실패: '+e.message,'err');
@@ -770,10 +787,12 @@ async function loadProjects(){
       });
       projs.forEach(p=>{
         if(p.parent_id){
-          // 세분계획: 부모 계획 데이터에서 자기 조(filter_group) 기준 진행률 계산
-          const g=String(p.filter_group||'').trim();
-          p._total=groupTotal[p.parent_id]?.[g]||0;
-          p._done=groupDone[p.parent_id]?.[g]||0;
+          // 세분계획: 조 카드는 정확 매칭, 팀 카드('1팀')는 '1팀 x조'들을 접두어 매칭으로 합산
+          const fg=String(p.filter_group||'').trim();
+          const match=k=>k===fg||k.startsWith(fg+' ');
+          const gt=groupTotal[p.parent_id]||{},gd=groupDone[p.parent_id]||{};
+          p._total=Object.keys(gt).reduce((s,k)=>s+(match(k)?gt[k]:0),0);
+          p._done=Object.keys(gd).reduce((s,k)=>s+(match(k)?gd[k]:0),0);
         }else{
           p._total=totalMap[p.id]||0;
           p._done=doneMap2[p.id]||0;
@@ -823,14 +842,19 @@ function renderProjects(list){
     card.onclick=()=>openProject(p);
     frag.appendChild(card);
     // 이 부모에 딸린 세분계획 카드들을 바로 아래에 표시
-    subPlanList.filter(sp=>String(sp.parent_id)===String(p.id)).forEach(sp=>{
+    // 팀 카드(다른 세분계획들의 접두어가 되는 것)는 🏢, 그 소속 조는 한 단계 더 들여쓴 👥 카드로
+    const children=subPlanList.filter(sp=>String(sp.parent_id)===String(p.id));
+    const isTeamCard=sp=>children.some(o=>o.id!==sp.id&&String(o.filter_group||'').startsWith(String(sp.filter_group||'')+' '));
+    const hasTeamParent=sp=>children.some(o=>o.id!==sp.id&&String(sp.filter_group||'').startsWith(String(o.filter_group||'')+' '));
+    children.forEach(sp=>{
+      const team=isTeamCard(sp),nested=hasTeamParent(sp);
       const sc=document.createElement('div');
-      sc.className='project-card subplan';
+      sc.className='project-card subplan'+(team?' team':'')+(nested?' nested':'');
       sc.id='pcard-'+sp.id;
       sc.dataset.id=sp.id;
       sc.innerHTML=`
         <button class="project-card-del" onclick="event.stopPropagation();deleteProject('${sp.id}','${esc(sp.name)}')" title="삭제">✕</button>
-        <div class="project-card-name">👥 ${esc(sp.name)}</div>
+        <div class="project-card-name">${team?'🏢':'👥'} ${esc(sp.name)}</div>
         <div class="project-card-meta">${cardMetaHtml(sp)}</div>`;
       sc.onclick=()=>openProject(sp);
       frag.appendChild(sc);
@@ -945,7 +969,7 @@ async function deleteProject(id,name){
 
 // ━━ 프로젝트 열기 ━━
 async function openProject(proj){
-  lockedFilterGroup='';
+  lockedFilterGroup='';teamFilterPrefix='';
   let displayName=proj.name;
   if(proj.parent_id){
     // 세분계획: 실제 데이터는 부모 계획에 있으므로 부모를 연다. 필터만 해당 조로 잠근다.
@@ -999,7 +1023,7 @@ async function goHome(){
     if(mapView)mapView.style.display='none';
     if(homeView)homeView.style.display='block';
     currentProject=null;
-    lockedFilterGroup='';
+    lockedFilterGroup='';teamFilterPrefix='';
     items=[];overlays={};
     await loadProjects();
   }catch(e){console.error('goHome 오류:',e);}
@@ -1083,23 +1107,39 @@ function buildGroupFilter(){
   const sel=document.getElementById('groupSelect');
   if(!groups.length){panel.style.display='none';return;}
   panel.style.display='block';
+  // ── 세분계획 진입 잠금값 해석 ──
+  // 정확히 일치하는 조가 있으면 → 조 잠금 모드 (드롭다운 비활성)
+  // 접두어로 매칭되는 조들이 있으면('1팀' → '1팀 1조'...) → 팀 모드 (팀 내 조들만 전환 가능)
+  // 둘 다 아니면(엑셀 재업로드로 사라짐) → 잠금 해제 + 안내
+  if(lockedFilterGroup&&!groups.includes(lockedFilterGroup)){
+    if(groups.some(g=>g.startsWith(lockedFilterGroup+' '))){
+      teamFilterPrefix=lockedFilterGroup;lockedFilterGroup='';filterGroupVal='';
+    }else{
+      showToast(`'${lockedFilterGroup}' 조를 찾을 수 없어 전체를 표시합니다. 세분계획을 갱신해주세요.`,'err');
+      lockedFilterGroup='';teamFilterPrefix='';filterGroupVal='';
+    }
+  }
   const cur=filterGroupVal;
-  sel.innerHTML=`<option value="">전체 그룹 (모든 소화전 표시)</option>`
-    +groups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
-  sel.value=groups.includes(cur)?cur:'';
-  // 세분계획으로 진입한 경우: 해당 조 필터를 고정하고 드롭다운을 잠근다
-  if(lockedFilterGroup){
-    if(groups.includes(lockedFilterGroup)){
+  if(teamFilterPrefix){
+    // 팀 모드: 팀 소속 조들만 드롭다운에 표시. 기본값은 "팀 전체"(팀 내 모든 조).
+    const teamGroups=groups.filter(g=>g===teamFilterPrefix||g.startsWith(teamFilterPrefix+' '));
+    sel.innerHTML=`<option value="">${esc(teamFilterPrefix)} 전체</option>`
+      +teamGroups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
+    sel.value=teamGroups.includes(cur)?cur:'';
+    if(!teamGroups.includes(cur))filterGroupVal='';
+    sel.disabled=false;
+  }else{
+    sel.innerHTML=`<option value="">전체 그룹 (모든 소화전 표시)</option>`
+      +groups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
+    sel.value=groups.includes(cur)?cur:'';
+    if(lockedFilterGroup){
+      // 조 잠금 모드
       filterGroupVal=lockedFilterGroup;
       sel.value=lockedFilterGroup;
       sel.disabled=true;
     }else{
-      // 세분계획 생성 후 엑셀이 재업로드되어 해당 조가 사라진 경우: 잠금 해제하고 안내
-      showToast(`'${lockedFilterGroup}' 조를 찾을 수 없어 전체를 표시합니다. 세분계획을 갱신해주세요.`,'err');
-      lockedFilterGroup='';filterGroupVal='';sel.disabled=false;
+      sel.disabled=false;
     }
-  }else{
-    sel.disabled=false;
   }
   updateGroupCounts();
 }
@@ -1113,13 +1153,24 @@ function updateGroupCounts(){
   const vis=items.filter(d=>!filterText||d.name.toLowerCase().includes(filterText.toLowerCase()));
   const opts=sel.querySelectorAll('option');
   opts.forEach(opt=>{
-    if(!opt.value){opt.textContent='전체 그룹 (모든 소화전 표시)';return;}
+    if(!opt.value){
+      if(teamFilterPrefix){
+        const cnt=vis.filter(d=>{const g=String(d.group_name||'').trim();return g===teamFilterPrefix||g.startsWith(teamFilterPrefix+' ');}).length;
+        opt.textContent=`${teamFilterPrefix} 전체 (${cnt})`;
+      }else{
+        opt.textContent='전체 그룹 (모든 소화전 표시)';
+      }
+      return;
+    }
     const cnt=vis.filter(d=>String(d.group_name||'').trim()===opt.value).length;
     opt.textContent=`${opt.value} (${cnt})`;
   });
 }
 function isHidden(d){
-  if(filterGroupVal&&String(d.group_name||'').trim()!==String(filterGroupVal).trim())return true;
+  const g=String(d.group_name||'').trim();
+  // 팀 모드: 팀 밖 소화전은 항상 숨김 (필터 전환과 무관하게 팀 범위 밖으로 못 나감)
+  if(teamFilterPrefix&&!(g===teamFilterPrefix||g.startsWith(teamFilterPrefix+' ')))return true;
+  if(filterGroupVal&&g!==String(filterGroupVal).trim())return true;
   if(filterText&&!d.name.toLowerCase().includes(filterText.toLowerCase())&&!(d.address||'').toLowerCase().includes(filterText.toLowerCase()))return true;
   return false;
 }
