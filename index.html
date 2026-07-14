@@ -50,7 +50,17 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
 .home-content{flex:1;padding:20px;max-width:760px;margin:0 auto;width:100%}
 .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .section-title{font-size:13px;font-weight:700;color:var(--mt);text-transform:uppercase;letter-spacing:.08em}
-.project-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.project-grid{display:flex;flex-direction:column;gap:10px}
+/* 트리 하위 묶음: 왼쪽 가이드선 + 들여쓰기. 접기/펼치기는 display 토글로 처리 */
+.tree-children{display:flex;flex-direction:column;gap:8px;margin-left:14px;padding-left:12px;border-left:2px solid rgba(255,255,255,.09)}
+.tree-toggle{background:transparent;border:none;color:var(--mt);cursor:pointer;font-size:13px;padding:0 6px 0 0;line-height:1;vertical-align:middle}
+.tree-toggle:hover{color:var(--ac)}
+.tree-count{font-size:10.5px;color:var(--mt);font-weight:400;margin-left:6px}
+/* 눈에 띄는 펼침/접기 버튼: 세분계획이 있다는 것을 명확히 보여준다 */
+.tree-expand-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:8px;padding:7px 10px;border:1px solid rgba(47,129,247,.35);border-radius:6px;background:rgba(47,129,247,.12);color:var(--ac);font-size:12px;font-weight:700;cursor:pointer;transition:background .15s}
+.tree-expand-btn:hover{background:rgba(47,129,247,.25)}
+.project-card.subplan.team .tree-expand-btn{border-color:rgba(63,185,80,.35);background:rgba(63,185,80,.12);color:var(--lo)}
+.project-card.subplan.team .tree-expand-btn:hover{background:rgba(63,185,80,.25)}
 .project-card{background:var(--sur);border:1px solid var(--bd2);border-radius:var(--r2);padding:16px;cursor:pointer;transition:all .15s;position:relative}
 .project-card-updown{position:absolute;right:8px;bottom:8px;display:flex;gap:4px}
 .project-card-updown button{width:26px;height:22px;border:1px solid var(--bd2);border-radius:5px;background:var(--sur2);color:var(--mt);font-size:11px;cursor:pointer}
@@ -67,9 +77,9 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
 .project-card:hover .project-card-edit{opacity:1}
 .project-card-edit:hover{background:rgba(47,129,247,.15);color:var(--ac)}
 /* 세분계획(조별 뷰) 카드: 부모 카드 아래에 들여쓰기된 작은 카드로 표시 */
-.project-card.subplan{margin-left:18px;padding:10px 14px;border-left:3px solid var(--ac);background:rgba(47,129,247,.04)}
+.project-card.subplan{margin-left:0;padding:10px 14px;border-left:3px solid var(--ac);background:rgba(47,129,247,.04)}
 .project-card.subplan.team{border-left-color:var(--lo);background:rgba(63,185,80,.05)}
-.project-card.subplan.nested{margin-left:36px}
+.project-card.subplan.nested{margin-left:0}
 .project-card.subplan .project-card-name{font-size:13px}
 .subplan-btn{display:inline-flex;align-items:center;gap:4px;margin-top:8px;padding:4px 10px;border:1px dashed var(--bd2);border-radius:6px;background:transparent;color:var(--mt);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
 .subplan-btn:hover{border-color:var(--ac);color:var(--ac)}
@@ -572,7 +582,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--ac)}
 <script src="https://rcntiger.github.io/common/excel.js"></script>
 <script>
 // ━━ 상수 ━━
-const APP_VERSION = 'v1.1.0'; // 버전 규칙: 주(DB 변경/호환 깨짐).부(기능 추가).수(버그 수정) — 배포 시 CHANGELOG.md도 함께 갱신
+const APP_VERSION = 'v1.2.1'; // 버전 규칙: 주(DB 변경/호환 깨짐).부(기능 추가).수(버그 수정) — 배포 시 CHANGELOG.md도 함께 갱신
 const SB_URL  = 'https://uxbbzvvkpebdvdjobnyz.supabase.co'; // 소화전 점검 DB (119hyd-inspec와 동일 프로젝트, 별도 hydmap_ 테이블 사용)
 const SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4YmJ6dnZrcGViZHZkam9ibnl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMTIzNTQsImV4cCI6MjA4OTU4ODM1NH0.PvCMpxSv-B3woWKfjxEkoyv1gDdjEHZy3_lvWVrSz2E';
 const JS_KEY  = 'a5e543d870953c97c0775ff90846c81b';
@@ -822,12 +832,17 @@ function renderProjects(list){
     return;
   }
   if(empty)empty.style.display='none';
+  // ── 트리 접기/펼치기 상태 (localStorage에 기억) ──
   const frag=document.createDocumentFragment();
   list.forEach((p,i)=>{
+    const children=subPlanList.filter(sp=>String(sp.parent_id)===String(p.id));
+    const isTeamCard=sp=>children.some(o=>o.id!==sp.id&&String(o.filter_group||'').startsWith(String(sp.filter_group||'')+' '));
+    const hasTeamParent=sp=>children.some(o=>o.id!==sp.id&&String(sp.filter_group||'').startsWith(String(o.filter_group||'')+' '));
     const card=document.createElement('div');
     card.className='project-card';
     card.id='pcard-'+p.id;
     card.dataset.id=p.id;
+    const pOpen=_treeIsOpen(p.id,false);
     card.innerHTML=`
       <div class="project-card-updown">
         <button onclick="event.stopPropagation();moveProject('${p.id}',-1)" title="위로" ${i===0?'disabled':''}>▲</button>
@@ -835,32 +850,69 @@ function renderProjects(list){
       </div>
       <button class="project-card-del" onclick="event.stopPropagation();deleteProject('${p.id}','${esc(p.name)}')" title="삭제">✕</button>
       <button class="project-card-edit" onclick="event.stopPropagation();showEditModal('${p.id}')" title="수정">✏️</button>
-      <div class="project-card-name">${esc(p.name)}</div>
+      <div class="project-card-name">📋 ${esc(p.name)}</div>
       <div class="project-card-desc">${esc(p.description||'')}</div>
       <div class="project-card-meta">${cardMetaHtml(p)}</div>
-      <button class="subplan-btn" onclick="event.stopPropagation();generateSubPlans('${p.id}')" title="엑셀의 팀/조 값 기준으로 조별 세분계획을 생성하거나 갱신합니다">🗂 조별 세분계획 생성/갱신</button>`;
+      ${children.length?`<button class="tree-expand-btn" id="tt-${p.id}" data-count="${children.length}" data-kind="plan" onclick="event.stopPropagation();toggleTree('${p.id}',false)">${pOpen?'▲ 팀/조별 담당 접기':'▼ 팀/조별 담당 펼쳐 보기'}</button>`:''}
+      <button class="subplan-btn" onclick="event.stopPropagation();generateSubPlans('${p.id}')" title="엑셀의 팀/조 값 기준으로 조별 세분계획을 생성하거나 갱신합니다">🗂 조별 세분계획 ${children.length?'갱신':'생성'}</button>`;
     card.onclick=()=>openProject(p);
     frag.appendChild(card);
-    // 이 부모에 딸린 세분계획 카드들을 바로 아래에 표시
-    // 팀 카드(다른 세분계획들의 접두어가 되는 것)는 🏢, 그 소속 조는 한 단계 더 들여쓴 👥 카드로
-    const children=subPlanList.filter(sp=>String(sp.parent_id)===String(p.id));
-    const isTeamCard=sp=>children.some(o=>o.id!==sp.id&&String(o.filter_group||'').startsWith(String(sp.filter_group||'')+' '));
-    const hasTeamParent=sp=>children.some(o=>o.id!==sp.id&&String(sp.filter_group||'').startsWith(String(o.filter_group||'')+' '));
-    children.forEach(sp=>{
-      const team=isTeamCard(sp),nested=hasTeamParent(sp);
-      const sc=document.createElement('div');
-      sc.className='project-card subplan'+(team?' team':'')+(nested?' nested':'');
-      sc.id='pcard-'+sp.id;
-      sc.dataset.id=sp.id;
-      sc.innerHTML=`
-        <button class="project-card-del" onclick="event.stopPropagation();deleteProject('${sp.id}','${esc(sp.name)}')" title="삭제">✕</button>
-        <div class="project-card-name">${team?'🏢':'👥'} ${esc(sp.name)}</div>
-        <div class="project-card-meta">${cardMetaHtml(sp)}</div>`;
-      sc.onclick=()=>openProject(sp);
-      frag.appendChild(sc);
+    if(!children.length)return;
+    // ── 하위 트리: 팀 노드 → 그 아래 소속 조 노드, 팀 없는 조는 부모 바로 아래 ──
+    const wrap=document.createElement('div');
+    wrap.className='tree-children';wrap.id='tw-'+p.id;
+    wrap.style.display=pOpen?'flex':'none';
+    const teams=children.filter(isTeamCard);
+    const under=t=>children.filter(sp=>sp.id!==t.id&&String(sp.filter_group||'').startsWith(String(t.filter_group||'')+' '));
+    teams.forEach(t=>{
+      const jos=under(t);
+      wrap.appendChild(_subPlanCard(t,true,jos.length));
+      if(jos.length){
+        const tw=document.createElement('div');
+        tw.className='tree-children';tw.id='tw-'+t.id;
+        tw.style.display=_treeIsOpen(t.id,true)?'flex':'none';
+        jos.forEach(j=>tw.appendChild(_subPlanCard(j,false,0)));
+        wrap.appendChild(tw);
+      }
     });
+    children.filter(sp=>!isTeamCard(sp)&&!hasTeamParent(sp)).forEach(j=>wrap.appendChild(_subPlanCard(j,false,0)));
+    frag.appendChild(wrap);
   });
   grid.appendChild(frag);
+}
+// 세분계획(팀/조) 카드 한 장 생성
+function _subPlanCard(sp,isTeam,childCount){
+  const sc=document.createElement('div');
+  sc.className='project-card subplan'+(isTeam?' team':'');
+  sc.id='pcard-'+sp.id;
+  sc.dataset.id=sp.id;
+  const open=_treeIsOpen(sp.id,true);
+  sc.innerHTML=`
+    <button class="project-card-del" onclick="event.stopPropagation();deleteProject('${sp.id}','${esc(sp.name)}')" title="삭제">✕</button>
+    <div class="project-card-name">${isTeam?'🏢':'👥'} ${esc(sp.name)}</div>
+    <div class="project-card-meta">${cardMetaHtml(sp)}</div>
+    ${isTeam&&childCount?`<button class="tree-expand-btn" id="tt-${sp.id}" data-count="${childCount}" data-kind="team" onclick="event.stopPropagation();toggleTree('${sp.id}',true)">${open?'▲ 조 목록 접기':`▼ ${childCount}개 조 펼치기`}</button>`:''}`;
+  sc.onclick=()=>openProject(sp);
+  return sc;
+}
+// ── 트리 접기/펼치기 ──
+let _treeOpen={};
+try{_treeOpen=JSON.parse(safeStorage.get('hy_tree_open','{}'))||{};}catch(e){_treeOpen={};}
+function _treeIsOpen(id,def){return (id in _treeOpen)?!!_treeOpen[id]:def;}
+function toggleTree(id,def){
+  _treeOpen[id]=!_treeIsOpen(id,def);
+  safeStorage.set('hy_tree_open',JSON.stringify(_treeOpen));
+  const w=document.getElementById('tw-'+id);
+  const t=document.getElementById('tt-'+id);
+  if(w)w.style.display=_treeOpen[id]?'flex':'none';
+  if(t){
+    const n=t.dataset.count||'';
+    if(t.dataset.kind==='team'){
+      t.textContent=_treeOpen[id]?'▲ 조 목록 접기':`▼ ${n}개 조 펼치기`;
+    }else{
+      t.textContent=_treeOpen[id]?'▲ 팀/조별 담당 접기':'▼ 팀/조별 담당 펼쳐 보기';
+    }
+  }
 }
 // 드래그가 잘 안 될 때를 위한 대안: 버튼으로 한 칸씩 순서 이동
 async function moveProject(id,dir){
@@ -1093,9 +1145,15 @@ async function loadProjectData(){
     // 그룹 목록
     groups=[...new Set(items.map(d=>String(d.group_name||'').trim()).filter(Boolean))]
       .sort((a,b)=>a.localeCompare(b,'ko',{numeric:true,sensitivity:'base'}));
+    // 색상표를 정렬된 그룹 순서로 선등록 → 매번 같은 조가 같은 색을 갖고, 팀 내(연속 순번) 조끼리는 색이 겹치지 않음
+    resetGroupColors();
+    groups.forEach(g=>groupColor({group_name:g}));
     buildGroupFilter();
     renderAllMarkers();
     renderList();
+    // 세분계획(팀/조 잠금)으로 진입한 경우 등 초기 필터 상태를 마커/목록에 즉시 반영
+    // (예전엔 필터를 한 번 조작해야 숨김이 적용되어, 팀 카드로 들어가도 처음엔 전체가 보이던 버그)
+    applyFilter();
     updateStats();
     if(items.length)fitAll();
   }catch(e){showToast('데이터 로드 실패','err');}
@@ -1305,6 +1363,7 @@ function showDiag(code){
 
 /* ══════════ Marker & List Render ══════════ */
 const _groupColorMap={};
+function resetGroupColors(){for(const k in _groupColorMap)delete _groupColorMap[k];}
 function groupColor(d){
   if(!d.group_name)return GROUP_COLORS[0];
   if(!_groupColorMap[d.group_name]){
@@ -1313,7 +1372,15 @@ function groupColor(d){
   }
   return _groupColorMap[d.group_name];
 }
-function groupCls(d){return 'g'+(Object.keys(_groupColorMap).indexOf(d.group_name||'')+1);}
+// CSS 클래스는 g1~g6(+g0 회색)까지만 존재하므로 그룹이 6개를 넘으면 색을 순환시킨다.
+// (예전엔 indexOf+1을 그대로 써서 7번째 그룹부터 존재하지 않는 g7, g8...이 되어 전부 기본 빨강으로 표시되던 버그)
+function groupCls(d){
+  const g=String(d.group_name||'').trim();
+  if(!g)return 'g0';
+  groupColor(d); // 색상표 등록 보장
+  const idx=Object.keys(_groupColorMap).indexOf(g);
+  return 'g'+((idx%GROUP_COLORS.length)+1);
+}
 
 // 정보카드(위로 길게 펼쳐짐)를 열 때, 마커를 화면 정중앙이 아니라
 // 화면 중앙보다 아래쪽으로 이동시켜서 카드가 위쪽으로 펼쳐질 공간을 확보한다.
@@ -2272,16 +2339,34 @@ async function proceedReset(){
 
 // ━━ 공통 확인 핸들러 (업로드/재설정 분기) ━━
 async function _onExcelConfirm(headers,rows,mapping){
+  // 매핑 인덱스 해석기: 구버전 excel.js는 mapping.name처럼 컬럼 id를 키로 쓰지만,
+  // 신버전(동적 컬럼 지원)은 정규화된 내부 키(col._id)로 넘겨줄 수 있다.
+  // 두 구조 모두에서 "이 컬럼이 시트의 몇 번째 열인지"를 얻는다.
+  const _mi=id=>{
+    if(mapping[id]!=null)return mapping[id];
+    if(Array.isArray(mapping._dynCols)){
+      const col=mapping._dynCols.find(c=>c.id===id);
+      if(col&&col._id!=null&&mapping[col._id]!=null)return mapping[col._id];
+    }
+    return null;
+  };
+  const iName=_mi('name'),iAddr=_mi('addr'),iLat=_mi('lat'),iLng=_mi('lng'),
+        iTeam=_mi('team'),iGroup=_mi('group'),iType=_mi('type'),iExtra=_mi('extra');
+  console.debug('excel mapping 수신:',mapping,'→ 해석:',{iName,iAddr,iLat,iLng,iTeam,iGroup,iType,iExtra});
+  if(iName==null){
+    showToast('이름 컬럼이 매핑되지 않았습니다. 컬럼 설정을 확인해주세요.','err');
+    return;
+  }
   const parsed=rows.map(r=>{
-    const typeRaw=mapping.type!=null?String(r[mapping.type]||'').trim():'';
+    const typeRaw=iType!=null?String(r[iType]||'').trim():'';
     // 119hyd-inspec.html과 동일한 판별 규칙: "지상" 포함 또는 '1'/'G' → 지상식, 그 외(값이 있으면) 지하식
     const hydrantType=typeRaw?(/지상|^1$|^G$/i.test(typeRaw)?'ground':'underground'):null;
     const extraObj={};
-    // ⚠ mapping.extra는 컬럼명이 아니라 "몇 번째 열인지"를 가리키는 인덱스 숫자다.
-    //    그래서 실제 헤더 텍스트(headers[mapping.extra])를 키로 써야 "도색년월일: 2012-06-12"처럼 나온다.
-    if(mapping.extra!=null){
-      const colName=headers[mapping.extra]||'정보';
-      extraObj[colName]=String(r[mapping.extra]||'').trim();
+    // ⚠ 매핑값은 컬럼명이 아니라 "몇 번째 열인지"를 가리키는 인덱스 숫자다.
+    //    그래서 실제 헤더 텍스트(headers[iExtra])를 키로 써야 "도색년월일: 2012-06-12"처럼 나온다.
+    if(iExtra!=null){
+      const colName=headers[iExtra]||'정보';
+      extraObj[colName]=String(r[iExtra]||'').trim();
     }
     // 새 excel.js: 모달에서 사용자가 직접 추가한 커스텀 컬럼(mapping._dynCols)도 extra에 수집한다.
     // 정보카드는 extra의 모든 키-값을 동적으로 표시하므로, 컬럼이 늘어나면 카드 표시도 자동으로 늘어난다.
@@ -2300,18 +2385,18 @@ async function _onExcelConfirm(headers,rows,mapping){
     // 엑셀에 위도/경도 컬럼이 매핑되어 있으면 그 값을 바로 사용 (지오코딩보다 정확함).
     // 값이 없거나 숫자가 아니면 null로 두고, 이후 업로드 단계에서 주소로 지오코딩해서 채운다.
     let excelLat=null,excelLng=null;
-    if(mapping.lat!=null){const v=parseFloat(r[mapping.lat]);if(!isNaN(v)&&v>=-90&&v<=90)excelLat=v;}
-    if(mapping.lng!=null){const v=parseFloat(r[mapping.lng]);if(!isNaN(v)&&v>=-180&&v<=180)excelLng=v;}
+    if(iLat!=null){const v=parseFloat(r[iLat]);if(!isNaN(v)&&v>=-90&&v<=90)excelLat=v;}
+    if(iLng!=null){const v=parseFloat(r[iLng]);if(!isNaN(v)&&v>=-180&&v<=180)excelLng=v;}
     // 팀/조 결합: 두 컬럼("1팀"+"2조" 또는 "1"+"2")을 "1팀 2조" 형태로 합쳐 group_name에 저장.
     // 값이 숫자만 있으면 팀/조 접미어를 자동으로 붙인다. 조만 있거나 팀만 있으면 있는 것만 쓴다.
-    let teamVal=mapping.team!=null?String(r[mapping.team]||'').trim():'';
-    let joVal=mapping.group!=null?String(r[mapping.group]||'').trim():'';
+    let teamVal=iTeam!=null?String(r[iTeam]||'').trim():'';
+    let joVal=iGroup!=null?String(r[iGroup]||'').trim():'';
     if(teamVal&&/^\d+$/.test(teamVal))teamVal+='팀';
     if(joVal&&/^\d+$/.test(joVal))joVal+='조';
     const groupName=[teamVal,joVal].filter(Boolean).join(' ')||null;
     return{
-      name:String(mapping.name!=null?r[mapping.name]:'').replace(/^\s+|\s+$/g,'').replace(/\s+/g,' '),
-      address:String(mapping.addr!=null?r[mapping.addr]:'').replace(/^\s+|\s+$/g,'').replace(/\s+/g,' '),
+      name:String(iName!=null?r[iName]:'').replace(/^\s+|\s+$/g,'').replace(/\s+/g,' '),
+      address:String(iAddr!=null?r[iAddr]:'').replace(/^\s+|\s+$/g,'').replace(/\s+/g,' '),
       group_name:groupName,
       extra:Object.keys(extraObj).length?extraObj:null,
       lat:(excelLat&&excelLng)?excelLat:null,
